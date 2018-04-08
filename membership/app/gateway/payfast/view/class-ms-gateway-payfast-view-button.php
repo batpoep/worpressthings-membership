@@ -130,129 +130,74 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 
 	/**
 
-	 * Prepare the PayPal IPN fields
-
 	 *
-
-	 * Details here:
-
-	 * https://developer.paypal.com/docs/classic/paypal-payments-standard/integration-guide/Appx_websitestandard_htmlvariables/
-
-	 *
-
-	 * @since  1.0.0
-
-	 * @return array
 
 	 */
 
 	private function prepare_fields() {
 
-		$subscription 	= $this->data['ms_relationship'];
-
-		$membership 	= $subscription->get_membership();
-
-
-
+		$subscription = $this->data['ms_relationship'];
+		$membership	= $subscription->get_membership();
+        
 		if ( 0 === $membership->price ) {
 
 			return;
 
 		}
-
-
-
+		
+        $member = $subscription->get_member();
 		$gateway = $this->data['gateway'];
-
 		$invoice = $subscription->get_current_invoice();
-
-
+		
+     /*  
+     SANDBOX DETAILS
+        Merchant ID	10000100
+        Merchant Key	46f0cd694581a
+    */
+        
+        $merchant_id_to_use = 10000100;
+        $merchant_key_to_use = '46f0cd694581a';
+        
+        if ( $gateway->is_live_mode() ) {
+            $merchant_id_to_use = $gateway->merchant_id;
+            $merchant_key_to_use = $gateway->merchant_key;
+		}
 
 		$fields = array(
+        /*Merchant details*/
+			'merchant_id' => array(
 
-			'business' 		=> array(
-
-				'id' 	=> 'business',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => $gateway->merchant_id,
-
-			),
-
-			'cmd' 			=> array(
-
-				'id' 	=> 'cmd',
+				'id' 	=> 'merchant_id',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
-				'value' => '_xclick',
+				'value' => $merchant_id_to_use,
 
 			),
 
-			'bn' 			=> array(
+			'merchant_key' => array(
 
-				'id' 	=> 'bn',
+				'id' 	=> 'merchant_key',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
-				'value' => 'incsub_SP',
+				'value' => $merchant_key_to_use,
 
 			),
 
-			'item_number' 	=> array(
+			'passphrase'	=> array(
 
-				'id' 	=> 'item_number',
+				'id' 	=> 'passphrase',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
-				'value' => $subscription->membership_id,
+				'value' => $gateway->passphrase,
 
 			),
+			
+            'return' 		=> array(
 
-			'item_name' 	=> array(
-
-				'id' 	=> 'item_name',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => $membership->name,
-
-			),
-
-			'no_shipping' 	=> array(
-
-				'id' 	=> 'no_shipping',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => 1,
-
-			),
-
-			'amount' 		=> array(
-
-				'id' 	=> 'amount',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => MS_Helper_Billing::format_price( $invoice->total ),
-
-			),
-
-			'currency_code' => array(
-
-				'id' 	=> 'currency_code',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => $invoice->currency,
-
-			),
-
-			'return' 		=> array(
-
-				'id' 	=> 'return',
+				'id' 	=> 'return_url',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
@@ -272,7 +217,7 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 
 			'cancel_return' => array(
 
-				'id' 	=> 'cancel_return',
+				'id' 	=> 'cancel_url',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
@@ -289,27 +234,64 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 				'value' => $gateway->get_return_url(),
 
 			),
+		/*Buyer details*/
+			'first_name' 	=> array(
 
-			'lc' 			=> array(
-
-				'id' 	=> 'lc',
+				'id' 	=> 'name_first',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
-				'value' => $gateway->paypal_site,
+				'value' => $member->first_name,
 
 			),
+			'last_name' 	=> array(
 
+				'id' 	=> 'name_last',
+
+				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
+
+				'value' => $member->last_name,
+
+			),
+			'email' 	=> array(
+
+				'id' 	=> 'email_address',
+
+				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
+
+				'value' => $member->email,
+
+			),
+		/*Transaction details*/
 			'invoice' 		=> array(
 
-				'id' 	=> 'invoice',
+				'id' 	=> 'm_payment_id',
 
 				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
 
 				'value' => $invoice->id,
 
 			),
+			
+			'amount' 		=> array(
 
+				'id' 	=> 'amount',
+
+				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
+
+				'value' => MS_Helper_Billing::format_price( $invoice->total ),
+
+			),
+			
+			'item_name' 	=> array(
+
+				'id' 	=> 'item_name',
+
+				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
+
+				'value' => $membership->name,
+
+			),
 		);
 
 
