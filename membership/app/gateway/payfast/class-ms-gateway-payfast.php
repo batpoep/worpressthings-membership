@@ -39,6 +39,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 	protected $merchant_id;
 	protected $merchant_key;
 	protected $passphrase;
+	protected $log;
 
 	public function after_load() {
 
@@ -53,7 +54,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 		$this->manual_payment 	= true; // Recurring billed/paid manually
 
 		$this->pro_rate 		= true;
-
+        $this->log = true;
 	}
 
 	/**
@@ -69,9 +70,97 @@ class MS_Gateway_PayFast extends MS_Gateway {
 	 *         that will be updated instead of creating a new log entry.
 
 	 */
+    private function SecurityChecks($pfData, $pfHost){
+        // Construct variables 
+        $pfParamString='';
+        foreach( $pfData as $key => $val )
+        {
+            if( $key != 'signature' )
+            {
+                $pfParamString .= $key .'='. urlencode( $val ) .'&';
+            }
+        }
+        
+        // Remove the last '&' from the parameter string
+        $pfParamString = substr( $pfParamString, 0, -1 );
+        $pfTempParamString = $pfParamString;
+        // Passphrase stored in website database
 
+        if( !empty( $passphrase ) )
+        {
+            $pfTempParamString .= '&passphrase='.urlencode( $passphrase );
+        }
+        $signature = md5( $pfTempParamString );
+        
+        if($signature!=$pfData['signature'])
+        {
+            write_log('Security Check: Invalid Signature');
+            die('Invalid Signature');
+        }
+        
+        $validHosts = array(
+            'www.payfast.co.za',
+            'sandbox.payfast.co.za',
+            'w1w.payfast.co.za',
+            'w2w.payfast.co.za',
+        );
+        
+        $validIps = array();
+        
+        foreach( $validHosts as $pfHostname )
+        {
+            $ips = gethostbynamel( $pfHostname );
+            if( $ips !== false )
+            {
+                $validIps = array_merge( $validIps, $ips );
+            }
+        }
+        
+        // Remove duplicates
+        $validIps = array_unique( $validIps );
+        
+        if( !in_array( $_SERVER['REMOTE_ADDR'], $validIps ) )
+        {
+            write_log('Security Check: Source IP not Valid');
+            die('Source IP not Valid');
+        }
+        
+        $url = $pfHost .'/eng/query/validate';
+
+        // Create default cURL object
+        $ch = curl_init();
+        
+        // Set cURL options - Use curl_setopt for greater PHP compatibility
+        // Base settings
+        curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+        curl_setopt( $ch, CURLOPT_HEADER, false );      
+        curl_setopt( $ch, CURLOPT_SSL_VERIFYHOST, 2 );
+        curl_setopt( $ch, CURLOPT_SSL_VERIFYPEER, 1 );
+        
+        // Standard settings
+        curl_setopt( $ch, CURLOPT_URL, $url );
+        curl_setopt( $ch, CURLOPT_POST, true );
+        curl_setopt( $ch, CURLOPT_POSTFIELDS, $pfParamString );
+        
+        // Execute CURL
+        $response = curl_exec( $ch );
+        curl_close( $ch );
+        
+        $lines = explode( "\r\n", $response );
+        $verifyResult = trim( $lines[0] );
+        
+        if( strcasecmp( $verifyResult, 'VALID' ) != 0 )
+        {
+            write_log('Security Check: Data not valid');
+            die('Data not valid');
+        }
+        
+        write_log('Passed security checks');
+    }
+    
 	public function handle_return( $log = false ) {
-
+        write_log('Handle return now');
+            
 		$success 			= false;
 
 		$exit 				= false;
@@ -99,16 +188,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 		);
 
 
-
-		lib3()->array->strip_slashes( $_POST, 'pending_reason' );
-
-
-
-		if ( ( isset($_POST['payment_status'] ) || isset( $_POST['txn_type'] ) )
-
-			&& ! empty( $_POST['invoice'] )
-
-		) {
+		if ( isset($_POST['payment_status']) && ! empty( $_POST['m_payment_id'] ) ) {
 
 			if ( $this->is_live_mode() ) {
 
@@ -120,41 +200,16 @@ class MS_Gateway_PayFast extends MS_Gateway {
 
 			}
 
-			// Ask PayPal to validate our $_POST data.
+		    $this->SecurityChecks($_POST, $domain);
+ 
 
-			$ipn_data 			= (array) stripslashes_deep( $_POST );
+			$invoice_id 	= intval( $_POST['m_payment_id'] );
 
-			$ipn_data['cmd'] 	= '_notify-validate';
+			$external_id 	= $_POST['pf_payment_id'];
 
-			$response 			= wp_remote_post(
+			$amount 		= (float) $_POST['amount_gross'];
 
-				$domain . '/cgi-bin/webscr',
-
-				array(
-
-					'timeout' 		=> 60,
-
-					'sslverify' 	=> false,
-
-					'httpversion' 	=> '1.1',
-
-					'body' 			=> $ipn_data,
-
-				)
-
-			);
-
-
-
-			$invoice_id 	= intval( $_POST['invoice'] );
-
-			$external_id 	= $_POST['txn_id'];
-
-			$amount 		= (float) $_POST['mc_gross'];
-
-			$currency 		= $_POST['mc_currency'];
-
-			$invoice 		= MS_Factory::load( 'MS_Model_Invoice', $invoice_id );
+			$invoice 		= MS_Factory::load( 'MS_Model_Invoice', $invoice_id);
 
 
 
@@ -190,10 +245,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 
 					// Successful payment
 
-					case 'Completed':
-
-					case 'Processed':
-
+					case 'COMPLETED':
 						$success 	= true;
 
 						if ( $amount == $invoice->total ) {
@@ -208,29 +260,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 
 						break;
 
-
-
-					case 'Reversed':
-
-						$notes 	= __( 'Last transaction has been reversed. Reason: Payment has been reversed (charge back). ', 'membership2' );
-
-						$status = MS_Model_Invoice::STATUS_DENIED;
-
-						break;
-
-
-
-					case 'Refunded':
-
-						$notes 	= __( 'Last transaction has been reversed. Reason: Payment has been refunded', 'membership2' );
-
-						$status = MS_Model_Invoice::STATUS_DENIED;
-
-						break;
-
-
-
-					case 'Denied':
+					case 'CANCELLED':
 
 						$notes 	= __( 'Last transaction has been reversed. Reason: Payment Denied', 'membership2' );
 
@@ -239,50 +269,7 @@ class MS_Gateway_PayFast extends MS_Gateway {
 						break;
 
 
-
-					case 'Pending':
-
-						$pending_str = array(
-
-							'address' 			=> __( 'Customer did not include a confirmed shipping address', 'membership2' ),
-
-							'authorization' 	=> __( 'Funds not captured yet', 'membership2' ),
-
-							'echeck' 			=> __( 'eCheck that has not cleared yet', 'membership2' ),
-
-							'intl' 				=> __( 'Payment waiting for aproval by service provider', 'membership2' ),
-
-							'multi-currency' 	=> __( 'Payment waiting for service provider to handle multi-currency process', 'membership2' ),
-
-							'unilateral' 		=> __( 'Customer did not register or confirm his/her email yet', 'membership2' ),
-
-							'upgrade' 			=> __( 'Waiting for service provider to upgrade the PayPal account', 'membership2' ),
-
-							'verify' 			=> __( 'Waiting for service provider to verify his/her PayPal account', 'membership2' ),
-
-							'*' 				=> '',
-
-						);
-
-
-
-						$reason = $_POST['pending_reason'];
-
-						$notes 	= __( 'Last transaction is pending. Reason: ', 'membership2' ) .
-
-									( isset($pending_str[$reason] ) ? $pending_str[$reason] : $pending_str['*'] );
-
-						$status = MS_Model_Invoice::STATUS_PENDING;
-
-						break;
-
-
-
 					default:
-
-					case 'Partially-Refunded':
-
-					case 'In-Progress':
 
 						$success = null;
 
@@ -291,26 +278,9 @@ class MS_Gateway_PayFast extends MS_Gateway {
 				}
 
 
-
-				if ( 'new_case' == $_POST['txn_type']
-
-					&& 'dispute' == $_POST['case_type']
-
-				) {
-
-					// Status: Dispute
-
-					$status = MS_Model_Invoice::STATUS_DENIED;
-
-					$notes 	= __( 'Dispute about this payment', 'membership2' );
-
+				if ( ! empty( $notes ) ) { 
+				    $invoice->add_notes( $notes ); 
 				}
-
-
-
-				if ( ! empty( $notes ) ) { $invoice->add_notes( $notes ); }
-
-
 
 				if ( $success ) {
 
