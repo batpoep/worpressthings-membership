@@ -16,7 +16,7 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 
 		$gateway 		= $this->data['gateway'];
 
-
+        
 
 		$action_url 	= apply_filters(
 
@@ -294,8 +294,25 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 			),
 		);
 
-
-
+       if($subscription->payment_type == 'recurring'){
+           $frequency = 0;
+           switch($membership->pay_cycle_period['period_type'])
+           {
+               case 'months':
+                   $frequency = 3;
+                   break;
+               case 'years':
+                   $frequency = 6;
+                   break;
+               
+           }
+           //$billingDate = $subscription->TODO
+           
+           $fields[] = array('id' => 'subscription_type','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => 1);
+           //$fields[] = array('id' 	=> 'billing_date','type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => $membership->name);
+           $fields[] = array('id' => 'frequency','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => $frequency);
+           $fields[] = array('id' => 'cycles','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => 0);//indefinite subscription
+       }
 		// Don't send to paypal if free
 
 		if ( 0 === $invoice->total ) {
