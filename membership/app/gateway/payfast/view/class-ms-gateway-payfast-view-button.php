@@ -155,12 +155,14 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
         Merchant Key	46f0cd694581a
     */
         
-        $merchant_id_to_use = 10000100;
-        $merchant_key_to_use = '46f0cd694581a';
+        $merchant_id_to_use = 10008249;
+        $merchant_key_to_use = 'ujcqddm2mz097';
+        $passphrase_to_use = '';
         
         if ( $gateway->is_live_mode() ) {
             $merchant_id_to_use = $gateway->merchant_id;
             $merchant_key_to_use = $gateway->merchant_key;
+            $passphrase_to_use = $gateway->passphrase;
 		}
 
 		$fields = array(
@@ -185,16 +187,6 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
 
 			),
 
-			'passphrase'	=> array(
-
-				'id' 	=> 'passphrase',
-
-				'type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,
-
-				'value' => $gateway->passphrase,
-
-			),
-			
             'return' 		=> array(
 
 				'id' 	=> 'return_url',
@@ -312,7 +304,23 @@ class MS_Gateway_PayFast_View_Button extends MS_View {
            //$fields[] = array('id' 	=> 'billing_date','type' 	=> MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => $membership->name);
            $fields[] = array('id' => 'frequency','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => $frequency);
            $fields[] = array('id' => 'cycles','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => 0);//indefinite subscription
-       }
+        
+			
+            $signature = '';
+            foreach ( $fields as $field ) {
+                $encoded = urlencode(trim($field['value']));
+            	$signature .= "{$field['id']}={$encoded}&";
+            }
+            
+            if($passphrase_to_use !== ''){
+                $encPassphrase = urlencode(trim($passphrase_to_use));
+                $signature = "{$signature}passphrase={$encPassphrase}";
+            } else{
+                $signature = rtrim($signature,'&');
+            }
+            write_log($signature);
+            $fields[] = array('id' => 'signature','type' => MS_Helper_Html::INPUT_TYPE_HIDDEN,'value' => md5($signature));
+        }
 		// Don't send to paypal if free
 
 		if ( 0 === $invoice->total ) {
